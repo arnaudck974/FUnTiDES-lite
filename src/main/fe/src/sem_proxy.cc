@@ -18,10 +18,21 @@
 #include <sstream>
 #include <variant>
 
+#include <filesystem>
+#include <fstream>
+#include <limits>
+
 using namespace SourceAndReceiverUtils;
 
 SEMproxy::SEMproxy(const SemProxyOptions& opt)
 {
+  is_snapshots_ = opt.is_snapshots_;
+  snap_time_interval_ = opt.snap_time_interval_;
+  snap_folder_ = opt.snap_folder_;
+
+  if (is_snapshots_)
+    std::filesystem::create_directories(snap_folder_);
+  
   const int order = opt.order;
   nb_elements_[0] = opt.ex;
   nb_elements_[1] = opt.ey;
@@ -156,6 +167,9 @@ void SEMproxy::run()
     totalComputeTime += system_clock::now() - startComputeTime;
 
     startOutputTime = system_clock::now();
+    
+    if (is_snapshots_ && indexTimeSample % snap_time_interval_ == 0)
+      saveSnapshot(indexTimeSample);
 
     if (indexTimeSample % 50 == 0)
     {
@@ -388,4 +402,29 @@ float SEMproxy::find_cfl_dt(float cfl_factor)
   float dt = cfl_factor * min_spacing / (sqrtDim3 * v_max);
 
   return dt;
+}
+
+void SEMproxy::saveSnapshot(int timestep)
+{
+  const auto path = std::filesystem::path(snap_folder_) /
+                    ("snapshot_" + std::to_string(timestep) + ".csv");
+  std::ofstream output(path);
+  if (!output)
+    throw std::runtime_error("Cannot open snapshot file: " + path.string());
+
+  output << "node,x,y,z,pressure\n";
+  output << std::setprecision(std::numeric_limits<float>::max_digits10);
+
+  for (int node = 0; node < m_mesh->getNumberOfNodes(); ++node)
+    {
+      output << node << ','
+             << m_mesh->nodeCoord(node, 0) << ','
+             << m_mesh->nodeCoord(node, 1) << ','
+             << m_mesh->nodeCoord(node, 2) << ','
+             << pnGlobal(node, i1) << '\n';
+    }
+  
+  output.close();
+  if (!output)
+    throw std::runtime_error("Cannot write snapshot file: " + path.string());
 }

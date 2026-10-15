@@ -26,7 +26,11 @@ class SemProxyOptions
   // Boolean to tell if the model is charged on nodes or on element
   bool isModelOnNodes = false;
   bool isElastic = false;
-
+  // snapshots
+  bool is_snapshots_ = false;
+  int snap_time_interval_ = 50;
+  std::string snap_folder_ = ".";
+  
   void validate() const
   {
     if (order < 1) throw std::runtime_error("order must be >= 1");
@@ -34,6 +38,10 @@ class SemProxyOptions
       throw std::runtime_error("ex/ey/ez must be > 0");
     if (lx <= 0 || ly <= 0 || lz <= 0)
       throw std::runtime_error("lx/ly/lz must be > 0");
+    if (is_snapshots_ && snap_time_interval_ <= 0)
+      throw std::runtime_error("snapshot interval must be > 0");
+    if (is_snapshots_ && snap_folder_.empty())
+      throw std::runtime_error("snapshot folder must not be empty");
   }
 
   // Bind CLI flags to this instance (no --help here)
@@ -69,8 +77,13 @@ class SemProxyOptions
         cxxopts::value<float>(o.taper_delta))(
         "is-model-on-nodes",
         "Boolean to tell if the model is charged on nodes (true) or on element "
-        "(false)",
-        cxxopts::value<bool>(o.isModelOnNodes))(
-        "is-elastic", "Elastic simulation", cxxopts::value<bool>(o.isElastic));
+        "(false)",cxxopts::value<bool>(o.isModelOnNodes))(
+        "is-elastic", "Elastic simulation", cxxopts::value<bool>(o.isElastic))(
+        "is-snapshots", "Save pressure snapshots",
+        cxxopts::value<bool>(o.is_snapshots_))(
+        "snap-time-interval", "Number of time steps between snapshots",
+        cxxopts::value<int>(o.snap_time_interval_))(
+        "snap-folder", "Directory for snapshot files",
+        cxxopts::value<std::string>(o.snap_folder_));;
   }
 };
