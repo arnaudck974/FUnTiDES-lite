@@ -30,6 +30,7 @@ class SemProxyOptions
   bool is_snapshots_ = false;
   int snap_time_interval_ = 50;
   std::string snap_folder_ = ".";
+  std::string recepteur_file_ = "";
   
   void validate() const
   {
@@ -77,13 +78,16 @@ class SemProxyOptions
         cxxopts::value<float>(o.taper_delta))(
         "is-model-on-nodes",
         "Boolean to tell if the model is charged on nodes (true) or on element "
-        "(false)",cxxopts::value<bool>(o.isModelOnNodes))(
+        "(false)",
+        cxxopts::value<bool>(o.isModelOnNodes))(
         "is-elastic", "Elastic simulation", cxxopts::value<bool>(o.isElastic))(
         "is-snapshots", "Save pressure snapshots",
         cxxopts::value<bool>(o.is_snapshots_))(
         "snap-time-interval", "Number of time steps between snapshots",
         cxxopts::value<int>(o.snap_time_interval_))(
         "snap-folder", "Directory for snapshot files",
-        cxxopts::value<std::string>(o.snap_folder_));;
+        cxxopts::value<std::string>(o.snap_folder_))(
+        "recepteur", "File containing receiver positions",
+        cxxopts::value<std::string>(o.recepteur_file_));
   }
 };
