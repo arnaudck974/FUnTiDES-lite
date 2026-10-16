@@ -13,6 +13,7 @@
 #include <model_unstruct.h>
 #include <solver_factory.h>
 #include <utils.h>
+#include <vector>
 
 #include <memory>
 #include <string>
@@ -86,8 +87,10 @@ class SEMproxy
   int nb_nodes_[3] = {0};
   std::array<float, 3> src_coord_ = {0};
   std::array<float, 3> rcv_coord_ = {0};
-  float domain_size_[3] = {0};
 
+  std::vector<std::array<float, 3>> receiver_coords_;
+  float domain_size_[3] = {0};
+  
   // snapshots
   bool is_snapshots_;
   int snap_time_interval_;
