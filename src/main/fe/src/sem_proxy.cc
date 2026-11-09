@@ -6,6 +6,7 @@
 //************************************************************************
 
 #include "sem_proxy.h"
+#include <rle.h>
 #include "pressure_statistics.h"
 
 #include <cartesian_struct_builder.h>
@@ -52,6 +53,17 @@ SEMproxy::SEMproxy(const SemProxyOptions& opt)
   if (is_snapshots_)
     std::filesystem::create_directories(snap_folder_);
   
+  rle_ = opt.rle;
+  rle_folder_ = opt.rle_folder;
+  if (rle_)
+  {
+    std::filesystem::create_directories(rle_folder_);
+    if (process_snapshots_)
+      std::ofstream(std::filesystem::path(rle_folder_) / "rle_snapshots.csv")
+          << "timestep,time_s,values,runs,raw_bytes,rle_bytes,ratio,"
+             "copy_s,encode_s,write_s\n";
+  }
+
   const int order = opt.order;
   nb_elements_[0] = opt.ex;
   nb_elements_[1] = opt.ey;
@@ -221,6 +233,7 @@ void SEMproxy::run()
                                        : "sismograms";
   metrics_.sample_count = num_sample_;
   metrics_.extrema_backend = extrema_backend_;
+  metrics_.rle = rle_;
 #ifdef USE_KOKKOS
   metrics_.execution_space = Kokkos::DefaultExecutionSpace::name();
   std::unique_ptr<PressureExtremaWorkspace> extrema_workspace;
@@ -338,6 +351,9 @@ void SEMproxy::run()
               .count();
     }
 
+    if (rle_ && process_snapshots_ && indexTimeSample % snap_time_interval_ == 0)
+      compressSnapshotRLE(indexTimeSample, solverData.m_pnGlobal);
+
     if (indexTimeSample % 50 == 0)
     {
       m_solver->outputSolutionValues(indexTimeSample, i1, rhsElement[0],
@@ -438,6 +454,8 @@ void SEMproxy::run()
         std::chrono::duration<double>(Clock::now() - startSismogramTime).count();
     metrics_.sismogram_mb =
         static_cast<double>(std::filesystem::file_size("sismos.bin")) / 1e6;
+
+    if (rle_) compressSismogramsRLE();
   }
   else if (is_in_situ_)
   {
@@ -721,4 +739,95 @@ void SEMproxy::saveSnapshot(int timestep)
   // Compter uniquement les fichiers sauvegardés pendant cette exécution.
   metrics_.snapshot_mb +=
       static_cast<double>(std::filesystem::file_size(path)) / 1e6;
+}
+
+
+void SEMproxy::compressSnapshotRLE(int timestep, const arrayReal& pressure)
+{
+  using Clock = std::chrono::steady_clock;
+  const int nbNodes = m_mesh->getNumberOfNodes();
+
+  // 1. Copy the newest field (column i1) into a contiguous host buffer.
+  //    computeOneStep() ends with a fence, so the GPU work is finished.
+  auto start = Clock::now();
+  rle_buffer_.resize(nbNodes);
+  for (int node = 0; node < nbNodes; ++node) rle_buffer_[node] = pressure(node, i1);
+  const double copySeconds =
+      std::chrono::duration<double>(Clock::now() - start).count();
+
+  // 2. Encode.
+  start = Clock::now();
+  const auto runs = rleEncode(rle_buffer_.data(), rle_buffer_.size());
+  const double encodeSeconds =
+      std::chrono::duration<double>(Clock::now() - start).count();
+
+  // 3. Write the compressed field.
+  start = Clock::now();
+  const auto path = std::filesystem::path(rle_folder_) /
+                    ("snapshot_" + std::to_string(timestep) + ".rle");
+  std::ofstream out(path, std::ios::binary);
+  if (!out) throw std::runtime_error("Cannot open " + path.string());
+  rleWrite(out, runs);
+  out.close();
+  if (!out) throw std::runtime_error("Cannot write " + path.string());
+  const double writeSeconds =
+      std::chrono::duration<double>(Clock::now() - start).count();
+
+  // 4. Record one line per snapshot (ratio over time) and the totals.
+  const std::size_t rawBytes = rle_buffer_.size() * sizeof(float);
+  const std::size_t rleBytesWritten = std::filesystem::file_size(path);
+  std::ofstream csv(std::filesystem::path(rle_folder_) / "rle_snapshots.csv",
+                    std::ios::app);
+  csv << std::setprecision(9) << timestep << ',' << (timestep + 1) * dt_ << ','
+      << nbNodes << ',' << runs.size() << ',' << rawBytes << ','
+      << rleBytesWritten << ',' << double(rawBytes) / rleBytesWritten << ','
+      << copySeconds << ',' << encodeSeconds << ',' << writeSeconds << '\n';
+
+  ++metrics_.rle_snapshot_count;
+  metrics_.rle_copy_seconds += copySeconds;
+  metrics_.rle_encode_seconds += encodeSeconds;
+  metrics_.rle_write_seconds += writeSeconds;
+  metrics_.rle_snapshot_raw_mb += rawBytes / 1e6;
+  metrics_.rle_snapshot_mb += rleBytesWritten / 1e6;
+}
+
+void SEMproxy::compressSismogramsRLE()
+{
+  using Clock = std::chrono::steady_clock;
+  const int nbReceivers = static_cast<int>(receiver_coords_.size());
+
+  std::ofstream csv(std::filesystem::path(rle_folder_) / "rle_sismograms.csv");
+  csv << "receiver,values,runs,raw_bytes,rle_bytes,ratio,encode_s\n";
+  const auto path = std::filesystem::path(rle_folder_) / "sismos.rle";
+  std::ofstream out(path, std::ios::binary);
+  if (!out) throw std::runtime_error("Cannot open " + path.string());
+
+  std::vector<float> signal(num_sample_);
+  std::size_t rawBytes = 0;
+  for (int r = 0; r < nbReceivers; ++r)
+  {
+    for (int s = 0; s < num_sample_; ++s) signal[s] = pnAtReceiver(r, s);
+
+    auto start = Clock::now();
+    const auto runs = rleEncode(signal.data(), signal.size());
+    const double encodeSeconds =
+        std::chrono::duration<double>(Clock::now() - start).count();
+
+    start = Clock::now();
+    rleWrite(out, runs);  // one block per receiver, in receiver order
+    metrics_.rle_sismogram_write_seconds +=
+        std::chrono::duration<double>(Clock::now() - start).count();
+
+    const std::size_t raw = signal.size() * sizeof(float);
+    const std::size_t encoded = sizeof(std::uint64_t) + rleBytes(runs);
+    rawBytes += raw;
+    metrics_.rle_sismogram_encode_seconds += encodeSeconds;
+    csv << std::setprecision(9) << r << ',' << signal.size() << ','
+        << runs.size() << ',' << raw << ',' << encoded << ','
+        << double(raw) / encoded << ',' << encodeSeconds << '\n';
+  }
+  out.close();
+  if (!out) throw std::runtime_error("Cannot write " + path.string());
+  metrics_.rle_sismogram_raw_mb = rawBytes / 1e6;
+  metrics_.rle_sismogram_mb = std::filesystem::file_size(path) / 1e6;
 }

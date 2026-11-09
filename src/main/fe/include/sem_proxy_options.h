@@ -34,6 +34,8 @@ class SemProxyOptions
   int snap_time_interval_ = 50;
   std::string snap_folder_ = ".";
   std::string recepteur_file_ = "";
+  bool rle = false;
+  std::string rle_folder = "rle";
   
   void validate() const
   {
@@ -111,6 +113,11 @@ class SemProxyOptions
         "snap-folder", "Directory for snapshot files",
         cxxopts::value<std::string>(o.snap_folder_))(
         "recepteur", "File containing receiver positions",
-        cxxopts::value<std::string>(o.recepteur_file_));
+        cxxopts::value<std::string>(o.recepteur_file_))(
+        "rle", "Compress snapshots (every snap-time-interval steps) and "
+        "sismograms with RLE",
+        cxxopts::value<bool>(o.rle))(
+        "rle-folder", "Output folder for RLE files and ratios",
+        cxxopts::value<std::string>(o.rle_folder));
   }
 };

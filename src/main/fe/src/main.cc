@@ -70,6 +70,21 @@ static void saveMetrics(const SemProxyMetrics& metrics)
            << ", \"total_seconds\": " << metrics.extrema_total_seconds
            << ", \"input_bytes\": " << metrics.extrema_input_bytes
            << ", \"result_bytes\": " << metrics.extrema_result_bytes << "}";
+  output << ",\n  \"rle\": ";
+  if (!metrics.rle) output << "null";
+  else
+    output << "{\"snapshot_count\": " << metrics.rle_snapshot_count
+           << ", \"copy_seconds\": " << metrics.rle_copy_seconds
+           << ", \"encode_seconds\": " << metrics.rle_encode_seconds
+           << ", \"write_seconds\": " << metrics.rle_write_seconds
+           << ", \"snapshot_raw_mb\": " << metrics.rle_snapshot_raw_mb
+           << ", \"snapshot_mb\": " << metrics.rle_snapshot_mb
+           << ", \"sismogram_encode_seconds\": "
+           << metrics.rle_sismogram_encode_seconds
+           << ", \"sismogram_write_seconds\": "
+           << metrics.rle_sismogram_write_seconds
+           << ", \"sismogram_raw_mb\": " << metrics.rle_sismogram_raw_mb
+           << ", \"sismogram_mb\": " << metrics.rle_sismogram_mb << "}";
   output << "\n}\n";
   output.close();
   if (!output) throw std::runtime_error("Cannot write metrics.json");

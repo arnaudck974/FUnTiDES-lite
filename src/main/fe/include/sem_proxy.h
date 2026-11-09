@@ -42,6 +42,12 @@ struct SemProxyMetrics
   double sismogram_analysis_seconds = 0;
   double statistics_write_seconds = 0;
   double statistics_mb = 0;
+  bool rle = false;
+  int rle_snapshot_count = 0;
+  double rle_copy_seconds = 0, rle_encode_seconds = 0, rle_write_seconds = 0;
+  double rle_snapshot_raw_mb = 0, rle_snapshot_mb = 0;
+  double rle_sismogram_encode_seconds = 0, rle_sismogram_write_seconds = 0;
+  double rle_sismogram_raw_mb = 0, rle_sismogram_mb = 0;
 };
 
 /**
@@ -102,6 +108,18 @@ class SEMproxy
 
   void saveSnapshot(int timestep);
 
+  /**
+   * @brief Compresses the current pressure field with RLE (TP3).
+   *
+   * Copies the newest field into a contiguous host buffer, encodes it,
+   * writes <rle_folder>/snapshot_<step>.rle and appends one line to
+   * <rle_folder>/rle_snapshots.csv. Copy, encoding and writing are timed
+   * separately in the metrics.
+   */
+  void compressSnapshotRLE(int timestep, const arrayReal& pressure);
+
+  /// @brief Compresses each receiver signal with RLE (ad-hoc mode only).
+  void compressSismogramsRLE();
  private:
   SemProxyMetrics metrics_;
   bool is_in_situ_ = false;
@@ -125,6 +143,10 @@ class SEMproxy
   bool is_snapshots_;
   int snap_time_interval_;
   std::string snap_folder_;
+
+  bool rle_ = false;
+  std::string rle_folder_;
+  std::vector<float> rle_buffer_;
 
   // physics
   bool isElastic_;
