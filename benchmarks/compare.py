@@ -15,6 +15,7 @@ from time import perf_counter
 
 from benchmark import environment, run_command
 from estimate_tp2_storage import check_storage_budget
+from estimate_storage import estimate
 
 
 FIELDS = (
@@ -349,7 +350,7 @@ def remove_raw_output(directory, kind):
     folder = directory / "snapshots" if kind == "snapshots" else directory
     if folder.is_symlink():
         raise ValueError(f"Nettoyage refusé : lien symbolique {folder}")
-    files = ([p for p in folder.glob("snapshot_*.bin")
+    files = ([folder / "mesh.bin"] + [p for p in folder.glob("snapshot_*.bin")
               if p.stem.removeprefix("snapshot_").isdigit()]
              if kind == "snapshots" else [directory / "sismos.bin"])
     # Check every candidate before deleting anything; keep all reports and logs.
@@ -564,9 +565,8 @@ def main():
         print(f"Tailles : {selected} ; types : {args.data} ; essais : {repetitions}")
         print(f"Simulations prévues : {len(selected)*(2*repetitions*len(args.data)+precision_runs)}")
         if "snapshots" in args.data:
-            steps=int(config["parameters"]["timemax"]/config["parameters"]["dt"])
-            fields=len(range(0,steps,k))*repetitions+sum(len(range(0,steps,v)) for v in config["precision_intervals"] if v!=k)
-            mb=sum((n*config["parameters"]["order"]+1)**3*20*fields/1e6 for _,n in selected)
+            _,_,volumes=estimate(config_path,args.cases,["snapshots"])
+            mb=sum(row["snapshots_bytes"] for row in volumes)/1e6
             print(f"Volume approximatif de snapshots bruts écrits, puis supprimés : {mb/1000:.2f} GB")
         print("Budget : 20 GB ; binaires supprimés après validation et sauvegarde des mesures, hors chronométrage.")
         backend=next((line.partition(":")[2].strip().lower() for line in help_result.stdout.splitlines()
