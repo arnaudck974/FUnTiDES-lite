@@ -115,14 +115,15 @@ fournies, le lancement prévoit **545 simulations**, avec cinq répétitions :
 - strong scaling : N = 50, threads = `[1,2,3,4,6,8]` ;
 - weak scaling : 8 000 éléments par thread, avec ces mêmes nombres de threads.
 
-Le pic brut nominal est d'environ **15,94 GB**, lors de la comparaison de
+Le pic brut nominal est d'environ **3,20 GB**, lors de la comparaison de
 précision à N = 40, k = 1. Les dimensions sont des nombres d'éléments ;
 le nombre de nœuds vaut `(order*N+1)^3` dans les cas cubiques.
 Il faut huit cœurs physiques disponibles et assez de mémoire CPU/GPU ; le
 budget disque ne garantit pas la capacité mémoire ni un temps d'exécution court.
 
 **Après chaque essai ad-hoc analysé, contrôlé et enregistré dans les CSV**, seuls
-ses `snapshots/snapshot_<pas>.bin` ou son `sismos.bin` sont supprimés. Pour les
+ses `snapshots/snapshot_<pas>.bin` et `snapshots/mesh.bin`, ou son `sismos.bin`,
+sont supprimés. Pour les
 essais chronométrés de `compare.py`, le contrôle de la paire ad-hoc/in-situ
 précède la suppression. Les JSON, CSV, configurations, logs et figures restent
 disponibles. Un échec avant cette étape conserve les binaires pour diagnostic.
@@ -169,7 +170,8 @@ python3 benchmarks/estimate_tp2_storage.py
 
 Cet outil lit les quatre JSON et affiche une ligne par configuration : volume
 cumulé des snapshots et sismogrammes écrits, leur total, et le pic brut
-temporaire. La somme des volumes écrits inclut les répétitions et les sorties
+temporaire. Le volume des snapshots inclut les maillages, chacun écrit une
+fois par essai ad-hoc. La somme des volumes écrits inclut les répétitions et les sorties
 de précision de `compare.py` ; elle peut dépasser 20 GB puisque les binaires
 sont supprimés progressivement. Le pic global est le maximum des quatre pics,
 pas leur somme. Les pics bruts excluent JSON, CSV, logs, figures et `build/`,
@@ -177,6 +179,50 @@ qui sont pris en compte par les contrôles pendant l'exécution.
 Le zéro de la campagne CPU/GPU signifie zéro donnée brute ; ses statistiques
 et figures occupent aussi du stockage. Les arrondis float32 du simulateur
 peuvent légèrement modifier le nombre réel de pas et le volume.
+
+## Format binaire des snapshots : maillage partagé
+
+Le maillage est fixe pendant une simulation. Les sorties utilisent deux fichiers
+natifs sans en-tête ni remplissage, avec le même ordre de nœuds :
+
+```text
+snapshots/mesh.bin             : x0, y0, z0, x1, y1, z1, ... (float32)
+snapshots/snapshot_<pas>.bin   : p0, p1, ...                 (float32)
+```
+
+`mesh.bin` est écrit une seule fois, au premier snapshot de chaque exécution.
+Les coordonnées physiques et les pressions gardent leur précision ; les
+identifiants ne sont plus écrits. La pression d'indice `i` correspond au
+triplet de coordonnées d'indice `i`. Pour `n` nœuds et `T` snapshots, le volume
+brut est `12*n + 4*n*T` octets. Le temps d'écriture du maillage est inclus dans
+le premier snapshot et son volume est compté une fois dans `snapshot_mb`.
+
+`snapshot_io.py` fournit le lecteur commun à `analyze.py` et `visualize.py`.
+Le nombre de nœuds est déduit de la taille de `mesh.bin`. Les lecteurs vérifient
+que chaque snapshot contient exactement une pression par nœud. La visualisation
+charge le maillage une seule fois pour toute la série.
+
+L'ancien format entrelacé `identifiant,x,y,z,pression` n'est plus pris en charge.
+Les anciennes sorties restent sur disque mais doivent être régénérées dans un
+nouveau dossier pour utiliser ces lecteurs. Les mesures archivées de l'ancien
+format ne décrivent pas les coûts du nouveau : refaire la référence avant
+d'évaluer un gain supplémentaire de compression. Les sismogrammes et le RLE
+gardent leurs formats actuels.
+
+Après recompilation, les commandes Python restent les mêmes :
+
+```sh
+python3 analyze.py --snapshots snapshots --dt 0.001
+python3 visualize.py snapshots snapshots --out-dir figures
+```
+
+`--dt` doit correspondre au pas réellement utilisé par la simulation. L'indice
+du pas est conservé dans le nom du fichier. Pour vérifier les lecteurs sans
+lancer de simulation :
+
+```sh
+python3 -B -m unittest discover -s tests -p test_snapshot_io.py -v
+```
 
 ## TP2: separate snapshot and sismogram comparisons
 
@@ -307,10 +353,11 @@ Pour chaque nombre de threads, snapshots et sismogrammes sont mesurés
 séparément, en ad-hoc et en in-situ, cinq fois par défaut. Les snapshots sont
 analysés aux mêmes indices `0, k, 2k, ...` dans les deux approches ; les
 sismogrammes utilisent les mêmes récepteurs et tous les pas. Il n'y a pas de
-campagne de précision supplémentaire. Le réglage par défaut `N=40`,
-`threads=[1,2,4,8]`, cinq répétitions correspond à **80 simulations** et environ
-**16 GB de snapshots bruts conservés**. L'estimation utilise le nombre nominal
-de pas ; les compteurs mesurés restent la référence.
+campagne de précision supplémentaire. Le volume brut d'un essai snapshots
+est `n*(12 + 4*T)` octets, avec `n=(order*N+1)^3` et `T` sorties. L'estimation
+de la campagne inclut un maillage par essai ad-hoc, les répétitions et les
+nombres de threads configurés. Elle utilise le nombre nominal de pas ; les
+compteurs mesurés restent la référence.
 
 Le pilote demande explicitement les threads à Kokkos et OpenMP, désactive
 l'ajustement dynamique et utilise `OMP_PLACES=cores`, `OMP_PROC_BIND=spread`.

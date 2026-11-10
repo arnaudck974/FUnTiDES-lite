@@ -228,6 +228,7 @@ void SEMproxy::run()
 {
   using Clock = std::chrono::steady_clock;
   metrics_ = {};
+  mesh_saved_ = false;
   metrics_.in_situ = is_in_situ_;
   metrics_.outputs = process_snapshots_ ? (process_sismograms_ ? "both" : "snapshots")
                                        : "sismograms";
@@ -715,8 +716,38 @@ float SEMproxy::find_cfl_dt(float cfl_factor)
   return dt;
 }
 
+void SEMproxy::saveMesh()
+{
+  const auto path = std::filesystem::path(snap_folder_) / "mesh.bin";
+  std::ofstream output(path, std::ios::binary);
+  if (!output)
+    throw std::runtime_error("Cannot open mesh file: " + path.string());
+
+  // Node order is shared by mesh.bin and every pressure snapshot.
+  for (int node = 0; node < m_mesh->getNumberOfNodes(); ++node)
+  {
+    const float coordinates[3] = {m_mesh->nodeCoord(node, 0),
+                                  m_mesh->nodeCoord(node, 1),
+                                  m_mesh->nodeCoord(node, 2)};
+    output.write(reinterpret_cast<const char*>(coordinates), sizeof(coordinates));
+  }
+
+  output.close();
+  if (!output)
+    throw std::runtime_error("Cannot write mesh file: " + path.string());
+  // The first snapshot's timer includes this one-time geometry write.
+  metrics_.snapshot_mb +=
+      static_cast<double>(std::filesystem::file_size(path)) / 1e6;
+}
+
 void SEMproxy::saveSnapshot(int timestep)
 {
+  if (!mesh_saved_)
+  {
+    saveMesh();
+    mesh_saved_ = true;
+  }
+
   const auto path = std::filesystem::path(snap_folder_) /
     ("snapshot_" + std::to_string(timestep) + ".bin");
   std::ofstream output(path, std::ios::binary);
@@ -725,12 +756,8 @@ void SEMproxy::saveSnapshot(int timestep)
 
   for (int node = 0; node < m_mesh->getNumberOfNodes(); ++node)
     {
-      const std::int32_t nodeId = node;
-      const float values[4] = {m_mesh->nodeCoord(node, 0),
-                               m_mesh->nodeCoord(node, 1),
-                               m_mesh->nodeCoord(node, 2), pnGlobal(node, i1)};
-      output.write(reinterpret_cast<const char*>(&nodeId), sizeof(nodeId));
-      output.write(reinterpret_cast<const char*>(values), sizeof(values));
+      const float pressure = pnGlobal(node, i1);
+      output.write(reinterpret_cast<const char*>(&pressure), sizeof(pressure));
     }
   
   output.close();

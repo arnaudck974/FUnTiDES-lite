@@ -12,6 +12,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from analyze import load_metrics
+from snapshot_io import load_mesh, load_snapshot
 
 
 def save_metrics(section, values):
@@ -60,16 +61,6 @@ def plot_sismos(bin_path, output):
     print(output)
 
 
-def load_snapshot(path):
-    # No header: int32 node, then float32 x, y, z, pressure (20 bytes/node).
-    # '=' means native byte order, matching the C++ writer; no padding.
-    node_type = np.dtype([("node", "=i4"), ("values", "=f4", (4,))])
-    size = path.stat().st_size
-    if size == 0 or size % node_type.itemsize != 0:
-        raise ValueError(f"Expected nonempty binary snapshot, 20 bytes/node: {path}")
-    return np.fromfile(path, dtype=node_type)["values"]
-
-
 def edges(centers):
     midpoints = (centers[:-1] + centers[1:]) / 2
     return np.r_[centers[0], midpoints, centers[-1]]
@@ -77,12 +68,15 @@ def edges(centers):
 
 def plot_snapshots(paths, requested_z, out_dir):
     start_read = perf_counter()
-    first = load_snapshot(paths[0])
+    coordinates = load_mesh(paths[0].parent / "mesh.bin")
+    node_count = len(coordinates)
+    first = load_snapshot(paths[0], node_count)
     read_seconds = perf_counter() - start_read
     start_analysis = perf_counter()
-    levels = np.unique(first[:, 2])
+    levels = np.unique(coordinates[:, 2])
     middle_z = (levels[0] + levels[-1]) / 2
     z = levels[np.argmin(abs(levels - (requested_z if requested_z is not None else middle_z)))]
+    selected = coordinates[:, 2] == z
 
     planes = []
     preparation_seconds = perf_counter() - start_analysis
@@ -91,10 +85,10 @@ def plot_snapshots(paths, requested_z, out_dir):
             data = first
         else:
             start_read = perf_counter()
-            data = load_snapshot(path)
+            data = load_snapshot(path, node_count)
             read_seconds += perf_counter() - start_read
         start_analysis = perf_counter()
-        points = data[data[:, 2] == z]
+        points = coordinates[selected]
         if not len(points):
             raise ValueError(f"No nodes at z={z:g} in {path}")
         x, x_index = np.unique(points[:, 0], return_inverse=True)
@@ -102,7 +96,7 @@ def plot_snapshots(paths, requested_z, out_dir):
         if len(x) < 2 or len(y) < 2:
             raise ValueError(f"At least two x and y coordinates are needed in {path}")
         pressure = np.full((len(y), len(x)), np.nan)
-        pressure[y_index, x_index] = points[:, 3]
+        pressure[y_index, x_index] = data[selected]
         planes.append((path, x, y, pressure))
         preparation_seconds += perf_counter() - start_analysis
 

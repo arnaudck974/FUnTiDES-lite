@@ -10,7 +10,7 @@ import sys
 # This estimator only reads files, including when importing the shared helpers.
 if __name__ == "__main__":
     sys.dont_write_bytecode = True
-from estimate_storage import count_receivers, estimate, positive_integer
+from estimate_storage import count_receivers, estimate, positive_integer, snapshot_storage_bytes
 
 
 STORAGE_BUDGET = 20_000_000_000  # Decimal GB, as in the measurement reports.
@@ -25,7 +25,7 @@ def raw_run_bytes(config, size, kind, interval, receivers, extra_step=False):
     if kind == "snapshots":
         dimensions = (size, size, size) if isinstance(size, int) else size
         nodes = math.prod(params["order"] * n + 1 for n in dimensions)
-        return 20 * nodes * ((steps + interval - 1) // interval)
+        return snapshot_storage_bytes(nodes, (steps + interval - 1) // interval)
     return 8 + 4 * steps * (count_receivers(Path(receivers)) + 1)
 
 
@@ -128,9 +128,9 @@ def estimate_all(folder):
         # Their in-situ counterparts produce no raw binary output.
         fields = (steps + cadence - 1) // cadence
         rows.append({"config": name,
-                     "snapshots_bytes": 20 * node_sum * fields * repetitions,
+                     "snapshots_bytes": snapshot_storage_bytes(node_sum, fields) * repetitions,
                      "sismograms_bytes": cases * repetitions * (8 + 4 * steps * (receivers + 1)),
-                     "peak_bytes": max(20 * largest_nodes * fields,
+                     "peak_bytes": max(snapshot_storage_bytes(largest_nodes, fields),
                                        8 + 4 * steps * (receivers + 1))})
 
     path = folder / "cpu_gpu_config.json"
@@ -160,6 +160,7 @@ def main():
         print(f"{'SOMME DES QUATRE CONFIGS':31} {snapshots/1e9:15.5f} "
               f"{signals/1e9:14.5f} {(snapshots+signals)/1e9:17.5f}")
         print("GB = 1 000 000 000 octets. Répétitions et sorties de précision incluses.")
+        print("Volumes snapshots : mesh.bin écrit une fois par essai, puis pressions float32 seules.")
         peak = max(row["peak_bytes"] for row in rows)
         print(f"PIC BRUT GLOBAL : {peak/1e9:.5f} GB (maximum, pas somme des pics).")
         print("Après chaque essai validé et ses mesures sauvegardées : suppression des binaires uniquement.")

@@ -9,6 +9,8 @@ from time import perf_counter
 
 import numpy as np
 
+from snapshot_io import load_mesh, load_snapshot
+
 
 def empty_statistics_metrics():
     return {
@@ -67,20 +69,14 @@ def analyze_snapshots(directory, dt):
     )
     if not paths:
         raise ValueError(f"No snapshot_<step>.bin files found in {directory}")
+    node_count = len(load_mesh(directory / "mesh.bin"))
     read_seconds = perf_counter() - start_read
     analysis_seconds = 0.0
     results = []
     extrema = None
-    # Native format: int32 node ID, then float32 x, y, z, pressure (20 bytes).
-    node_type = np.dtype([("node", "=i4"), ("values", "=f4", (4,))])
     for path in paths:
         start_read = perf_counter()
-        size = path.stat().st_size
-        if size == 0 or size % node_type.itemsize != 0:
-            raise ValueError(f"Expected nonempty binary snapshot, 20 bytes/node: {path}")
-        data = np.fromfile(path, dtype=node_type)
-        if data.size != size // node_type.itemsize:
-            raise ValueError(f"Incomplete snapshot: {path}")
+        pressures = load_snapshot(path, node_count)
         read_seconds += perf_counter() - start_read
 
         start_analysis = perf_counter()
@@ -88,11 +84,11 @@ def analyze_snapshots(directory, dt):
         time = (step + 1) * dt if dt is not None else None
         if time is not None and not math.isfinite(time):
             raise ValueError(f"Nonfinite snapshot time: {path}")
-        statistics = pressure_statistics(data["values"][:, 3])
+        statistics = pressure_statistics(pressures)
         results.append({
             "timestep_index": step,
             "time_seconds": time,
-            "node_count": int(data.size),
+            "node_count": node_count,
             **statistics,
         })
         if extrema is None:
@@ -105,7 +101,7 @@ def analyze_snapshots(directory, dt):
             for name in ("maximum_pressure", "maximum_absolute_pressure"):
                 extrema[name] = max(extrema[name], statistics[name])
         analysis_seconds += perf_counter() - start_analysis
-        del data  # Release this field before loading the next snapshot.
+        del pressures  # Release this field before loading the next snapshot.
     return {"per_snapshot": results, "global_extrema": extrema}, {
         "read_seconds": read_seconds, "analysis_seconds": analysis_seconds,
     }

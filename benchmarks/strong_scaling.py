@@ -17,6 +17,7 @@ from time import perf_counter
 from benchmark import environment
 from compare import command, read_run, remove_raw_output, write_csv
 from estimate_tp2_storage import check_storage_budget
+from estimate_storage import snapshot_storage_bytes
 
 
 KINDS = ("snapshots", "sismograms")
@@ -189,7 +190,8 @@ def run_campaign(config_path, config, info, plt):
     samples = int(config["parameters"]["timemax"] / config["parameters"]["dt"])
     fields = len(range(0, samples, config["parameters"]["snap-time-interval"]))
     nodes = (config["size"] * config["parameters"]["order"] + 1) ** 3
-    print(f"Snapshots bruts écrits puis supprimés : environ {nodes * 20 * fields * repetitions * len(config['threads']) / 1e9:.2f} GB.", flush=True)
+    volume = snapshot_storage_bytes(nodes, fields) * repetitions * len(config["threads"])
+    print(f"Snapshots et maillages bruts écrits puis supprimés : environ {volume / 1e9:.2f} GB.", flush=True)
     # Reverse the thread sweep on alternate repetitions to limit order bias.
     for kind in KINDS:
         for repeat in range(1, repetitions + 1):

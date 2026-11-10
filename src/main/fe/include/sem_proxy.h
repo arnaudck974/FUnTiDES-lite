@@ -121,6 +121,8 @@ class SEMproxy
   /// @brief Compresses each receiver signal with RLE (ad-hoc mode only).
   void compressSismogramsRLE();
  private:
+  void saveMesh();
+
   SemProxyMetrics metrics_;
   bool is_in_situ_ = false;
   std::string extrema_backend_;
@@ -141,6 +143,7 @@ class SEMproxy
   
   // snapshots
   bool is_snapshots_;
+  bool mesh_saved_ = false;
   int snap_time_interval_;
   std::string snap_folder_;
 
