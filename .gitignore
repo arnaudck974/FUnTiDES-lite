@@ -261,6 +261,9 @@ __marimo__/
 
 *.swp
 *snapshot*
+!scripts/snapshot_io.py
+!scripts/benchmarks/snapshot_stats.py
+!tests/test_snapshot_io.py
 *~
 compile_commands.json
 src/LvArra*

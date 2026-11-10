@@ -77,12 +77,30 @@ The following options can be used to configure your build:
 
 ---
 
+## Organisation des outils Python
+
+Les outils sont regroupés dans `scripts/` :
+
+```text
+scripts/
+├── snapshot_io.py          # lecteur commun de mesh.bin et des pressions
+├── analyze.py              # statistiques ad-hoc
+├── benchmarks/            # campagnes, estimations et configurations JSON
+└── visualisation/         # coupes, propagation et figure RLE
+```
+
+Les commandes ci-dessous s'exécutent depuis la racine du projet. Les résultats
+des campagnes restent dans `benchmarks/results/` ; les résultats existants
+ne sont pas déplacés. `scripts/benchmarks/snapshot_stats.py` est l'ancien outil
+CSV : il est conservé sans adaptation et ne lit pas le nouveau format binaire.
+Les statistiques binaires utilisent `scripts/analyze.py`.
+
 ## Lancement complet des mesures TP2
 
 Depuis la racine, après activation de votre environnement Python :
 
 ```sh
-bash benchmarks/run_tp2.sh
+bash scripts/benchmarks/run_tp2.sh
 ```
 
 Le script ne prend aucun argument. La campagne complète nécessite CMake avec
@@ -99,12 +117,12 @@ Release/Kokkos/CUDA, recompile, puis lance la comparaison ad-hoc/in-situ et les
 extrema CPU/GPU. `--fresh` réinitialise le cache et les métadonnées CMake pour
 changer de compilateur ; le dossier `build/` n'est pas supprimé une deuxième
 fois. Il n'y a aucun sous-dossier de compilation `build/openmp/` ou
-`build/cuda/` ; les quatre JSON gardent `../build/bin/semproxy`.
+`build/cuda/` ; les quatre JSON utilisent `../../build/bin/semproxy`.
 Les campagnes sont successives ; une erreur interrompt le lancement.
 Compilation, nettoyage et contrôles sont hors des chronomètres des mesures.
 À la fin, `build/bin/semproxy` utilise CUDA. Aucun fichier CMake n'est modifié.
 
-Les paramètres restent dans les quatre JSON de `benchmarks/`. Pour le workflow
+Les paramètres restent dans les quatre JSON de `scripts/benchmarks/`. Pour le workflow
 CUDA, `OMP_NUM_THREADS` est conservé s'il est défini, sinon il vaut 1 ; les
 bibliothèques numériques sont limitées à un thread. Les pilotes strong/weak
 définissent eux-mêmes leurs pools de simulation. Avec les configurations
@@ -165,7 +183,7 @@ un dossier de campagne déjà existant.
 Pour estimer le stockage avant de lancer, sans GPU ni compilation :
 
 ```sh
-python3 benchmarks/estimate_tp2_storage.py
+python3 scripts/benchmarks/estimate_tp2_storage.py
 ```
 
 Cet outil lit les quatre JSON et affiche une ligne par configuration : volume
@@ -197,7 +215,8 @@ triplet de coordonnées d'indice `i`. Pour `n` nœuds et `T` snapshots, le volum
 brut est `12*n + 4*n*T` octets. Le temps d'écriture du maillage est inclus dans
 le premier snapshot et son volume est compté une fois dans `snapshot_mb`.
 
-`snapshot_io.py` fournit le lecteur commun à `analyze.py` et `visualize.py`.
+`scripts/snapshot_io.py` fournit le lecteur commun à `scripts/analyze.py` et
+`scripts/visualisation/visualize.py`.
 Le nombre de nœuds est déduit de la taille de `mesh.bin`. Les lecteurs vérifient
 que chaque snapshot contient exactement une pression par nœud. La visualisation
 charge le maillage une seule fois pour toute la série.
@@ -212,8 +231,8 @@ gardent leurs formats actuels.
 Après recompilation, les commandes Python restent les mêmes :
 
 ```sh
-python3 analyze.py --snapshots snapshots --dt 0.001
-python3 visualize.py snapshots snapshots --out-dir figures
+python3 scripts/analyze.py --snapshots snapshots --dt 0.001
+python3 scripts/visualisation/visualize.py snapshots snapshots --out-dir figures
 ```
 
 `--dt` doit correspondre au pas réellement utilisé par la simulation. L'indice
@@ -223,6 +242,28 @@ lancer de simulation :
 ```sh
 python3 -B -m unittest discover -s tests -p test_snapshot_io.py -v
 ```
+
+## Figure de propagation à trois instants
+
+Après une simulation produisant le nouveau format `mesh.bin` et les pressions
+seules, choisir trois indices de snapshots présents dans le dossier :
+
+```sh
+python3 scripts/visualisation/visualize_propagation.py snapshots \
+  --steps 200 400 600 --dt 0.001 --output figures/propagation.svg
+```
+
+`--dt` doit être celui réellement utilisé par la simulation. Les titres
+indiquent `t = (indice + 1) * dt`, puisque l'indice 0 est sauvegardé après le
+premier pas. Le script choisit le plan disponible le plus proche du milieu
+du domaine ; `--z 1000` permet de demander un autre plan. Le plan réellement
+retenu apparaît dans la figure et dans le terminal.
+
+Les trois panneaux partagent une barre de couleurs, symétrique autour de zéro,
+fixée par la pression absolue maximale des trois coupes choisies. Les pressions
+ne sont pas normalisées séparément. Aucune interpolation des pressions n'est
+effectuée. `--output` accepte SVG, PNG ou PDF. Ce script ne modifie ni les
+statistiques ni `metrics.json`. Aucun nouvel histogramme n'est ajouté.
 
 ## TP2: separate snapshot and sismogram comparisons
 
@@ -235,9 +276,9 @@ statistics and snapshots. The pressure solver is unchanged.
 From the repository root, using your Python environment with NumPy/Matplotlib:
 
 ```sh
-python3 benchmarks/compare.py benchmarks/compare_config.json --cases S
-python3 benchmarks/compare.py benchmarks/compare_config.json --cases S --data snapshots
-python3 benchmarks/compare.py benchmarks/compare_config.json --cases S M L --data sismograms
+python3 scripts/benchmarks/compare.py scripts/benchmarks/compare_config.json --cases S
+python3 scripts/benchmarks/compare.py scripts/benchmarks/compare_config.json --cases S --data snapshots
+python3 scripts/benchmarks/compare.py scripts/benchmarks/compare_config.json --cases S M L --data sismograms
 ```
 
 `--cases` defaults to S M L; `--data` defaults to both independent campaigns.
@@ -306,7 +347,7 @@ Le code est fourni ; la compilation et la validation CUDA restent à effectuer
 sur la machine GPU. Les vérifications locales ne constituent pas une mesure GPU.
 
 ```sh
-python3 benchmarks/compare.py benchmarks/cpu_gpu_config.json --compare-cpu-gpu --cases S M L
+python3 scripts/benchmarks/compare.py scripts/benchmarks/cpu_gpu_config.json --compare-cpu-gpu --cases S M L
 ```
 
 Le fichier dédié contient seulement exécutable, tailles, répétitions et paramètres
@@ -336,7 +377,7 @@ dans le `CMakeCache.txt` du build et le backend réellement annoncé par Kokkos.
 Depuis la racine, avec NumPy et Matplotlib dans l'environnement Python :
 
 ```sh
-python3 benchmarks/strong_scaling.py benchmarks/strong_scaling_config.json
+python3 scripts/benchmarks/strong_scaling.py scripts/benchmarks/strong_scaling_config.json
 ```
 
 La configuration contient une seule `size` : `ex = ey = ez = size`. Les
@@ -413,7 +454,7 @@ Il utilise le même exécutable Release/Kokkos/OpenMP que le strong scaling,
 sans modification C++ ou CMake supplémentaire. Depuis la racine :
 
 ```sh
-python3 benchmarks/weak_scaling.py benchmarks/weak_scaling_config.json
+python3 scripts/benchmarks/weak_scaling.py scripts/benchmarks/weak_scaling_config.json
 ```
 
 Le JSON contient `executable`, `receivers`, `cases`, `repetitions` et
